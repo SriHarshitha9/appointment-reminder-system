@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Appointment Reminder</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 900px; margin: 40px auto; padding: 0 20px; background: #f5f5f5; }
+    h1 { color: #333; }
+    .box { background: white; padding: 24px; border-radius: 10px; margin-bottom: 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+    label { display: block; margin-bottom: 5px; font-weight: bold; color: #555; }
+    input { width: 100%; padding: 10px; margin-bottom: 14px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; box-sizing: border-box; }
+    button { background: #25d366; color: white; border: none; padding: 12px 28px; border-radius: 6px; font-size: 15px; cursor: pointer; }
+    button:hover { background: #1ebe5b; }
+    .msg { margin-top: 12px; padding: 10px 14px; border-radius: 6px; font-size: 14px; }
+    .msg.ok { background: #e6f9ee; color: #1a7a3f; border: 1px solid #a3d9b5; }
+    .msg.err { background: #fdecea; color: #b71c1c; border: 1px solid #f5a9a9; }
+    table { width: 100%; border-collapse: collapse; }
+    th { background: #f0f0f0; padding: 10px; text-align: left; font-size: 13px; color: #666; border-bottom: 2px solid #ddd; }
+    td { padding: 10px; border-bottom: 1px solid #eee; font-size: 14px; }
+    tr:hover td { background: #fafafa; }
+    .badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: bold; }
+    .confirmed { background: #e6f9ee; color: #1a7a3f; }
+    .reminded  { background: #ede7ff; color: #5e35b1; }
+    .pending   { background: #fff3e0; color: #e65100; }
+    .del { background: none; border: 1px solid #ffcdd2; color: #e53935; padding: 3px 10px; border-radius: 4px; font-size: 12px; cursor: pointer; }
+    .del:hover { background: #ffebee; }
+  </style>
+</head>
+<body>
+
+<h1>📅 Appointment Reminder System</h1>
+
+<!-- FORM -->
+<div class="box">
+  <h2 style="margin-top:0">Book New Appointment</h2>
+  <label>Customer Name</label>
+  <input type="text" id="name" placeholder="e.g. Maria Garcia" />
+  <label>Phone Number (with country code)</label>
+  <input type="text" id="phone" placeholder="e.g. +31612345678" />
+  <label>Appointment Date & Time</label>
+  <input type="datetime-local" id="time" />
+  <button onclick="book()">Book & Send WhatsApp ✓</button>
+  <div id="msg"></div>
+</div>
+
+<!-- DASHBOARD -->
+<div class="box">
+  <h2 style="margin-top:0">All Appointments</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Phone</th>
+        <th>Appointment Time</th>
+        <th>Status</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody id="list">
+      <tr><td colspan="5" style="text-align:center;color:#aaa;padding:30px">Loading...</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<script>
+  const API = "http://localhost:3001";
+
+  // Load appointments into the table
+  async function load() {
+    try {
+      const res = await fetch(API + "/appointments");
+      const data = await res.json();
+      const tbody = document.getElementById("list");
+
+      if (!data.length) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#aaa;padding:30px">No appointments yet.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = data.map(a => {
+        const status = a.reminder_sent ? "reminded" : a.confirmation_sent ? "confirmed" : "pending";
+        const label  = a.reminder_sent ? "Reminded"  : a.confirmation_sent ? "Confirmed"  : "Pending";
+        const time   = new Date(a.appointment_time).toLocaleString();
+        return `<tr>
+          <td>${a.customer_name}</td>
+          <td>${a.phone_number}</td>
+          <td>${time}</td>
+          <td><span class="badge ${status}">${label}</span></td>
+          <td><button class="del" onclick="del('${a.id}')">Delete</button></td>
+        </tr>`;
+      }).join("");
+    } catch {
+      document.getElementById("list").innerHTML =
+        '<tr><td colspan="5" style="color:red;padding:20px">Cannot connect to backend. Is it running?</td></tr>';
+    }
+  }
+
+  // Book appointment
+  async function book() {
+    const name  = document.getElementById("name").value.trim();
+    const phone = document.getElementById("phone").value.trim();
+    const time  = document.getElementById("time").value;
+    const msgEl = document.getElementById("msg");
+
+    if (!name || !phone || !time) {
+      msgEl.className = "msg err";
+      msgEl.textContent = "Please fill in all fields.";
+      return;
+    }
+
+    msgEl.className = "msg";
+    msgEl.textContent = "Booking...";
+
+    try {
+      const res = await fetch(API + "/appointments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customer_name: name, phone_number: phone, appointment_time: new Date(time).toISOString() })
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        msgEl.className = "msg ok";
+        msgEl.textContent = `✅ Booked! WhatsApp ${data.whatsapp_sent ? "sent ✓" : "simulated (check console)"}`;
+        document.getElementById("name").value = "";
+        document.getElementById("phone").value = "";
+        document.getElementById("time").value = "";
+        load();
+      } else {
+        msgEl.className = "msg err";
+        msgEl.textContent = "Error: " + data.error;
+      }
+    } catch {
+      msgEl.className = "msg err";
+      msgEl.textContent = "Cannot reach backend. Make sure server.js is running.";
+    }
+  }
+
+  // Delete appointment
+  async function del(id) {
+    if (!confirm("Delete this appointment?")) return;
+    await fetch(API + "/appointments/" + id, { method: "DELETE" });
+    load();
+  }
+
+  // Load on page open, refresh every 30 seconds
+  load();
+  setInterval(load, 30000);
+</script>
+
+</body>
+</html>
